@@ -148,7 +148,7 @@ Visualization Manager:
       Color: 25; 255; 0
       Enabled: false
       Name: plane_viz
-      Topic: /patchworkpp/plane
+      Topic: /ground_segmentation/plane
       Unreliable: false
       Value: false
       coloring: Liekelihood
@@ -179,7 +179,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.30000001192092896
       Style: Flat Squares
-      Topic: /patchworkpp/revert_pc
+      Topic: /ground_segmentation/revert_pc
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -207,7 +207,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.15000000596046448
       Style: Flat Squares
-      Topic: /patchworkpp/reject_pc
+      Topic: /ground_segmentation/reject_pc
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -222,7 +222,7 @@ Visualization Manager:
       Name: NormalDisplay
       Scale: 1
       Style: FlatColor
-      Topic: /patchworkpp/normals
+      Topic: /ground_segmentation/normals
       Unreliable: false
       Use Rainbow: true
       Value: false
@@ -249,7 +249,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.20000000298023224
       Style: Flat Squares
-      Topic: /patchworkpp/noise
+      Topic: /ground_segmentation/noise
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
@@ -277,7 +277,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.30000001192092896
       Style: Flat Squares
-      Topic: /patchworkpp/vertical
+      Topic: /ground_segmentation/vertical
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
