@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>patchworkpp</name>
-  <version>0.0.0</version>
+  <version>4.2.0</version>
   <description>patchwork++ package</description>
 
   <maintainer email="sj98lee@kaist.ac.kr">Seungjae Lee</maintainer>
@@ -12,36 +12,26 @@
   <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
   <license>TODO</license>
   <buildtool_depend>catkin</buildtool_depend>
-  <exec_depend>message_generation</exec_depend>
-  <exec_depend>libpcl-all</exec_depend>
-  <exec_depend>roscpp</exec_depend>
-  <exec_depend>rospy</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>nav_msgs</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>  
-  <exec_depend>jsk_recognition_msgs</exec_depend>  
-  <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>laser_geometry</exec_depend>
-  <exec_depend>pcl_conversions</exec_depend>
-  <exec_depend>pcl_ros</exec_depend>
-  <build_depend>roscpp</build_depend>
-  <build_depend>rospy</build_depend>
-  <build_depend>std_msgs</build_depend>
-  <build_depend>nav_msgs</build_depend>
-  <build_depend>roslaunch</build_depend>
-  <build_depend>libpcl-all-dev</build_depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>sensor_msgs</build_depend>
-  <build_depend>jsk_recognition_msgs</build_depend>
-  <build_depend>cv_bridge</build_depend>
-  <build_depend>laser_geometry</build_depend>
-  <build_depend>pcl_conversions</build_depend>
-  <build_depend>pcl_ros</build_depend>
+  <depend>pluginlib</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nodelet</depend>
+  <depend>roscpp</depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>roslaunch</depend>
+  <depend>libpcl-all-dev</depend>
+  <depend>message_generation</depend>
+  <depend>sensor_msgs</depend>
+  <depend>jsk_recognition_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>laser_geometry</depend>
+  <depend>pcl_conversions</depend>
+  <depend>pcl_ros</depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
-    <!-- Other tools can request additional information be placed here -->
-
+    <nodelet plugin="${prefix}/nodelets.xml"/>
   </export>
 </package>

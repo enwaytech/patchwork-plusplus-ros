@@ -1,0 +1,9 @@
+<library path="lib/libpatchworkpp">
+  <class name="patchworkpp/Nodelet"
+         type="patchworkpp::NodeletPointXYZI"
+         base_class_type="nodelet::Nodelet">
+    <description>
+      Patchwork++ ground removal nodelet
+    </description>
+  </class>
+</library>
