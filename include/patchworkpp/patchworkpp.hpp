@@ -98,8 +98,8 @@ public:
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Num of min. points: %d", num_min_pts_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Seeds Threshold: %f", th_seeds_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Distance Threshold: %f", th_dist_);
-        RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Max. range:: %f", max_range_);
-        RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Min. range:: %f", min_range_);
+        RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Max. range: %f", max_range_);
+        RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Min. range: %f", min_range_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Normal vector threshold: %f", uprightness_thr_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "adaptive_seed_selection_margin: %f", adaptive_seed_selection_margin_);
 
@@ -128,7 +128,6 @@ public:
         this->get_parameter("czm.flatness_thresholds", flatness_thr_);
         this->get_parameter("czm.num_rings_each_zone", num_rings_each_zone_);
         this->get_parameter("czm.num_zones", num_zones_);
-
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Num. zones: %d", num_zones_);
 
         if (num_zones_ != 4 || num_sectors_each_zone_.size() != num_rings_each_zone_.size()) {
@@ -192,9 +191,7 @@ public:
 
     void estimate_ground(pcl::PointCloud<PointT> cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
 
-
 private:
-
     // Every private member variable is written with the undescore("_") in its end.
     std::recursive_mutex mutex_;
 
@@ -219,7 +216,6 @@ private:
     double RNR_ver_angle_thr_;
     double RNR_intensity_thr_;
     bool verbose_;
-    bool display_time_;
     bool enable_RNR_;
     bool enable_RVPF_;
     bool enable_TGR_;
@@ -902,6 +898,7 @@ template<typename PointT> inline
 void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg)
 {
     double time_taken;
+
     pcl::PointCloud<PointT> pc_curr;
     pcl::PointCloud<PointT> pc_ground;
     pcl::PointCloud<PointT> pc_non_ground;
@@ -922,7 +919,9 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
             }
             output_frame = target_frame_;
         }
+        output_frame = target_frame_;
     }
+
     estimate_ground(pc_curr, pc_ground, pc_non_ground, time_taken);
     if(display_time_) {
         RCLCPP_INFO_STREAM(rclcpp::get_logger("patchworkpp"), "\033[1;32m" << "Input PointCloud: " << pc_curr.size() << " -> Ground: " << pc_ground.size() <<  "/ NonGround: " << pc_non_ground.size()
@@ -969,7 +968,7 @@ void PatchWorkpp<PointT>::pc2czm(const pcl::PointCloud<PointT> &src, std::vector
 
             czm[zone_idx][ring_idx][sector_idx].points.emplace_back(pt);
         }
-        else {
+        else if (r > max_range_) {
             cloud_nonground.push_back(pt);
         }
     }
