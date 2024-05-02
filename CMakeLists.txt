@@ -56,6 +56,12 @@ add_library(patchworkpp SHARED src/patchworkpp.cpp)
 target_compile_definitions(patchworkpp PUBLIC "PATCHWORKPP_COMPOSITION_BUILDING_DLL")
 target_link_libraries(patchworkpp ${LIBS})
 
+rclcpp_components_register_node(
+  ${PROJECT_NAME}
+  PLUGIN "patchworkpp::PatchworkppPointXYZI"
+  EXECUTABLE ${PROJECT_NAME}_executable
+)
+
 install(TARGETS
 patchworkpp
 ARCHIVE DESTINATION lib
