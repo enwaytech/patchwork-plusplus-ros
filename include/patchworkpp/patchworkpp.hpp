@@ -78,7 +78,6 @@ public:
         this->declare_parameter<double>("adaptive_seed_selection_margin", adaptive_seed_selection_margin_);
         this->declare_parameter<double>("RNR_ver_angle_thr", RNR_ver_angle_thr_);
 
-        this->declare_parameter<int>("num_zones", num_zones_);
         this->declare_parameter<double>("th_seeds_v", th_seeds_v_);
         this->declare_parameter<double>("th_dist_v", th_dist_v_);
         this->declare_parameter<double>("RNR_intensity_thr", RNR_intensity_thr_);
@@ -99,7 +98,6 @@ public:
         this->get_parameter<double>("adaptive_seed_selection_margin", adaptive_seed_selection_margin_);
         this->get_parameter<double>("RNR_ver_angle_thr", RNR_ver_angle_thr_);
 
-        this->get_parameter<int>("num_zones", num_zones_);
         this->get_parameter<double>("th_seeds_v", th_seeds_v_);
         this->get_parameter<double>("th_dist_v", th_dist_v_);
         this->get_parameter<double>("RNR_intensity_thr", RNR_intensity_thr_);
@@ -120,7 +118,6 @@ public:
         RCLCPP_INFO_STREAM(this->get_logger(), "Normal vector threshold: " <<  uprightness_thr_);
         RCLCPP_INFO_STREAM(this->get_logger(), "adaptive_seed_selection_margin: " << adaptive_seed_selection_margin_);
         RCLCPP_INFO_STREAM(this->get_logger(), "RNR_ver_angle_thr: " << RNR_ver_angle_thr_);
-        RCLCPP_INFO_STREAM(this->get_logger(), "Num. zones: " << num_zones_);
         RCLCPP_INFO_STREAM(this->get_logger(), "cloud_topic: " << cloud_topic);
         RCLCPP_INFO_STREAM(this->get_logger(), "frame_id: " << frame_id_);
 
@@ -133,6 +130,18 @@ public:
         new_elevation_thr_ = std::vector<double>{0.0, 0.0, 0.0, 0.0};
         flatness_thr_  = std::vector<double>{0.0, 0.0, 0.0, 0.0};
         new_flatness_thr_  = std::vector<double>{0.0, 0.0, 0.0, 0.0};
+        num_zones_ = 4;
+        this->declare_parameter<std::vector<long>>("czm.num_sectors_each_zone", num_sectors_each_zone_);
+        this->declare_parameter<std::vector<double>>("czm.elevation_thresholds", elevation_thr_);
+        this->declare_parameter<std::vector<double>>("czm.flatness_thresholds", flatness_thr_);
+        this->declare_parameter<std::vector<long>>("czm.num_rings_each_zone", num_rings_each_zone_);
+        this->declare_parameter<int>("czm.num_zones", num_zones_);
+
+        this->get_parameter("czm.num_sectors_each_zone", num_sectors_each_zone_);
+        this->get_parameter("czm.elevation_thresholds", elevation_thr_);
+        this->get_parameter("czm.flatness_thresholds", flatness_thr_);
+        this->get_parameter("czm.num_rings_each_zone", num_rings_each_zone_);
+        this->get_parameter("czm.num_zones", num_zones_);
 
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Num. zones: %d", num_zones_);
 

@@ -7,16 +7,16 @@ ground_segmentation/ground_segmentation:
     frame_id: "map"
     czm:
       elevation_thresholds:
-      - 0
-      - 0
-      - 0
-      - 0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
       flatness_thresholds:
-      - 0
-      - 0
-      - 0
-      - 0
-      mum_rings_each_zone:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      num_rings_each_zone:
       - 1
       - 1
       - 1
