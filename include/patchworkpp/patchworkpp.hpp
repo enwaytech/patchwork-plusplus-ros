@@ -123,13 +123,9 @@ public:
 
         // CZM denotes 'Concentric Zone Model'. Please refer to our paper
         num_sectors_each_zone_ = std::vector<long>{8, 8, 8, 8};
-        new_num_sectors_each_zone_   = std::vector<long>{8, 8, 8, 8}; 
-        num_rings_each_zone_   = std::vector<long>{8, 8, 8, 8};
-        new_num_rings_each_zone_   = std::vector<long>{8, 8, 8, 8};
         elevation_thr_ = std::vector<double>{0.0, 0.0, 0.0, 0.0};
-        new_elevation_thr_ = std::vector<double>{0.0, 0.0, 0.0, 0.0};
-        flatness_thr_  = std::vector<double>{0.0, 0.0, 0.0, 0.0};
-        new_flatness_thr_  = std::vector<double>{0.0, 0.0, 0.0, 0.0};
+        flatness_thr_ = std::vector<double>{0.0, 0.0, 0.0, 0.0};
+        num_rings_each_zone_ = std::vector<long>{8, 8, 8, 8};
         num_zones_ = 4;
         this->declare_parameter<std::vector<long>>("czm.num_sectors_each_zone", num_sectors_each_zone_);
         this->declare_parameter<std::vector<double>>("czm.elevation_thresholds", elevation_thr_);
@@ -255,10 +251,6 @@ private:
 
     // For visualization
     bool visualize_ = true;
-    vector<long> new_num_sectors_each_zone_;
-    vector<long> new_num_rings_each_zone_;
-    vector<double> new_flatness_thr_;
-    vector<double> new_elevation_thr_;
     vector<long> num_sectors_each_zone_;
     vector<long> num_rings_each_zone_;
     vector<double> sector_sizes_;
