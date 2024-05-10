@@ -3,8 +3,6 @@ ground_segmentation/ground_segmentation:
     RNR_intensity_thr: 2.0
     RNR_ver_angle_thr: -15.0
     adaptive_seed_selection_margin: -1.2
-    cloud_topic: "/point_cloud_fuser/fused_point_cloud"
-    frame_id: "map"
     czm:
       elevation_thresholds:
       - 0.0
@@ -30,7 +28,7 @@ ground_segmentation/ground_segmentation:
     enable_RNR: true
     enable_RVPF: true
     enable_TGR: true
-    max_r: 15
+    max_r: 15.0
     min_r: 0.6
     mode: czm
     num_iter: 3

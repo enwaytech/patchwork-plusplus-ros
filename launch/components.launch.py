@@ -25,7 +25,10 @@ def generate_launch_description():
                     plugin='patchworkpp::PatchworkppPointXYZI',
                     name='ground_segmentation',
                     namespace='ground_segmentation',
-                    parameters=[{config}]),
+                    parameters=[{config}],
+                    remappings=[
+                        ('/ground_segmentation/cloud', '/point_cloud_fuser/fused_point_cloud'),
+                    ]),
             ],
             output='screen',
     )

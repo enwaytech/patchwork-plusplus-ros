@@ -90,6 +90,7 @@ public:
         enable_RVPF_ = this->declare_parameter<bool>("enable_RVPF", true);
         enable_TGR_ = this->declare_parameter<bool>("enable_TGR", true);
         verbose_ = this->declare_parameter<bool>("verbose", false);
+        display_time_ = this->declare_parameter<bool>("display_time", false);
 
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Sensor Height: %f", sensor_height_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Num of Iteration: %d", num_iter_);
@@ -218,6 +219,7 @@ private:
     double RNR_ver_angle_thr_;
     double RNR_intensity_thr_;
     bool verbose_;
+    bool display_time_;
     bool enable_RNR_;
     bool enable_RVPF_;
     bool enable_TGR_;
@@ -900,7 +902,6 @@ template<typename PointT> inline
 void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg)
 {
     double time_taken;
-
     pcl::PointCloud<PointT> pc_curr;
     pcl::PointCloud<PointT> pc_ground;
     pcl::PointCloud<PointT> pc_non_ground;
@@ -911,19 +912,22 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
     // Optionally transform cloud to target_frame_
     if (tf2_buffer_)
     {
-        if (!pcl_ros::transformPointCloud(target_frame_, pc_curr, pc_curr, *tf2_buffer_))
+        if (target_frame_ != output_frame)
         {
-            RCLCPP_ERROR(rclcpp::get_logger("patchworkpp"), "Could not transform %s to %s frame.",
-                         cloud_msg->header.frame_id.c_str(), target_frame_.c_str());
-            return;
+            if (!pcl_ros::transformPointCloud(target_frame_, pc_curr, pc_curr, *tf2_buffer_))
+            {
+                RCLCPP_ERROR(rclcpp::get_logger("patchworkpp"), "Could not transform %s to %s frame.",
+                            cloud_msg->header.frame_id.c_str(), target_frame_.c_str());
+                return;
+            }
+            output_frame = target_frame_;
         }
-        output_frame = target_frame_;
     }
-
     estimate_ground(pc_curr, pc_ground, pc_non_ground, time_taken);
-
-    RCLCPP_INFO_STREAM(rclcpp::get_logger("patchworkpp"), "\033[1;32m" << "Input PointCloud: " << pc_curr.size() << " -> Ground: " << pc_ground.size() <<  "/ NonGround: " << pc_non_ground.size()
-         << " (running_time: " << time_taken << " sec)" << "\033[0m");
+    if(display_time_) {
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("patchworkpp"), "\033[1;32m" << "Input PointCloud: " << pc_curr.size() << " -> Ground: " << pc_ground.size() <<  "/ NonGround: " << pc_non_ground.size()
+            << " (running_time: " << time_taken << " sec)" << "\033[0m");
+    }
 
     pub_ground_->publish(cloud2msg(pc_ground, cloud_msg->header.stamp, output_frame));
     pub_non_ground_->publish(cloud2msg(pc_non_ground, cloud_msg->header.stamp, output_frame));
