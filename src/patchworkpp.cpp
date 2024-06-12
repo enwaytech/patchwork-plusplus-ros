@@ -69,7 +69,7 @@ patchworkpp::Nodelet<PointT>::onInit()
   // CZM denotes 'Concentric Zone Model'. Please refer to our paper
   node_handle_.getParam("czm/num_zones", num_zones_);
   node_handle_.getParam("czm/num_sectors_each_zone", num_sectors_each_zone_);
-  node_handle_.getParam("czm/mum_rings_each_zone", num_rings_each_zone_);
+  node_handle_.getParam("czm/num_rings_each_zone", num_rings_each_zone_);
   node_handle_.getParam("czm/elevation_thresholds", elevation_thr_);
   node_handle_.getParam("czm/flatness_thresholds", flatness_thr_);
 
