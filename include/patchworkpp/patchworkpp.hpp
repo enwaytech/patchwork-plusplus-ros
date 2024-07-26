@@ -237,7 +237,7 @@ private:
     Eigen::Vector4f pc_mean_;
 
     // For visualization
-    bool visualize_ = true;
+    bool visualize_ = false;
     vector<long> num_sectors_each_zone_;
     vector<long> num_rings_each_zone_;
     vector<double> sector_sizes_;
@@ -967,16 +967,22 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
         pub_heading_->publish(cloud_ROS);
     }
 
-    pub_ground_->publish(cloud2msg(pc_ground, cloud_msg->header.stamp, output_frame));
-    pub_non_ground_->publish(cloud2msg(pc_non_ground, cloud_msg->header.stamp, output_frame));
+    const auto node_graph = this->get_node_graph_interface();
+    if (node_graph->count_subscribers(pub_ground_->get_topic_name()) > 0)
+    {
+        pub_ground_->publish(cloud2msg(pc_ground, cloud_msg->header.stamp, output_frame));
+    }
+    if (node_graph->count_subscribers(pub_non_ground_->get_topic_name()) > 0)
+    {
+        pub_non_ground_->publish(cloud2msg(pc_non_ground, cloud_msg->header.stamp, output_frame));
+    }
 }
 
 template<typename PointT>
 sensor_msgs::msg::PointCloud2 PatchWorkpp<PointT>::cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id) {
     sensor_msgs::msg::PointCloud2 cloud_ROS;
     pcl::toROSMsg(cloud, cloud_ROS);
-    cloud_ROS.header.stamp.sec = stamp.seconds();
-    cloud_ROS.header.stamp.nanosec = stamp.nanoseconds() - stamp.seconds()*1e9;
+    cloud_ROS.header.stamp = stamp;
     cloud_ROS.header.frame_id = frame_id;
     return cloud_ROS;
 }
