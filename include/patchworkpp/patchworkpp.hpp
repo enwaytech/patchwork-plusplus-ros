@@ -187,9 +187,9 @@ public:
             ConcentricZoneModel_.push_back(z);
         }
 
-        pub_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("ground", 1);
-        pub_non_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("nonground", 1);
-        sub_cloud_ = Node::create_subscription<sensor_msgs::msg::PointCloud2>("cloud", 1, std::bind(&PatchWorkpp<PointT>::callbackCloud, this, std::placeholders::_1));
+        pub_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("ground", rclcpp::SensorDataQoS().keep_last(1));
+        pub_non_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("nonground", rclcpp::SensorDataQoS().keep_last(1));
+        sub_cloud_ = Node::create_subscription<sensor_msgs::msg::PointCloud2>("cloud", rclcpp::SensorDataQoS().keep_last(1), std::bind(&PatchWorkpp<PointT>::callbackCloud, this, std::placeholders::_1));
     }
 
     void estimate_ground(pcl::PointCloud<PointT> cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
