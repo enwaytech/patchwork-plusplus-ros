@@ -967,12 +967,11 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
         pub_heading_->publish(cloud_ROS);
     }
 
-    const auto node_graph = this->get_node_graph_interface();
-    if (node_graph->count_subscribers(pub_ground_->get_topic_name()) > 0)
+    if (pub_ground_->get_subscription_count() > 0)
     {
         pub_ground_->publish(std::move(cloud2msg(pc_ground, cloud_msg->header.stamp, output_frame)));
     }
-    if (node_graph->count_subscribers(pub_non_ground_->get_topic_name()) > 0)
+    if (pub_non_ground_->get_subscription_count() > 0)
     {
         pub_non_ground_->publish(std::move(cloud2msg(pc_non_ground, cloud_msg->header.stamp, output_frame)));
     }
