@@ -187,9 +187,9 @@ public:
             ConcentricZoneModel_.push_back(z);
         }
 
-        pub_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("ground", 1);
-        pub_non_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("nonground", 1);
-        sub_cloud_ = Node::create_subscription<sensor_msgs::msg::PointCloud2>("cloud", 1, std::bind(&PatchWorkpp<PointT>::callbackCloud, this, std::placeholders::_1));
+        pub_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("ground", rclcpp::SensorDataQoS().keep_last(1));
+        pub_non_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("nonground", rclcpp::SensorDataQoS().keep_last(1));
+        sub_cloud_ = Node::create_subscription<sensor_msgs::msg::PointCloud2>("cloud", rclcpp::SensorDataQoS().keep_last(1), std::bind(&PatchWorkpp<PointT>::callbackCloud, this, std::placeholders::_1));
     }
 
     void estimate_ground(pcl::PointCloud<PointT> cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
@@ -302,7 +302,7 @@ private:
     void callbackCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg);
 
     /* ROS Callbacks Functions */
-    sensor_msgs::msg::PointCloud2 cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id = "map");
+    sensor_msgs::msg::PointCloud2::UniquePtr cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id = "map");
 };
 
 template<typename PointT> inline
@@ -967,24 +967,24 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
         pub_heading_->publish(cloud_ROS);
     }
 
-    const auto node_graph = this->get_node_graph_interface();
-    if (node_graph->count_subscribers(pub_ground_->get_topic_name()) > 0)
+    if (pub_ground_->get_subscription_count() > 0)
     {
-        pub_ground_->publish(cloud2msg(pc_ground, cloud_msg->header.stamp, output_frame));
+        pub_ground_->publish(std::move(cloud2msg(pc_ground, cloud_msg->header.stamp, output_frame)));
     }
-    if (node_graph->count_subscribers(pub_non_ground_->get_topic_name()) > 0)
+    if (pub_non_ground_->get_subscription_count() > 0)
     {
-        pub_non_ground_->publish(cloud2msg(pc_non_ground, cloud_msg->header.stamp, output_frame));
+        pub_non_ground_->publish(std::move(cloud2msg(pc_non_ground, cloud_msg->header.stamp, output_frame)));
     }
 }
 
-template<typename PointT>
-sensor_msgs::msg::PointCloud2 PatchWorkpp<PointT>::cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id) {
-    sensor_msgs::msg::PointCloud2 cloud_ROS;
-    pcl::toROSMsg(cloud, cloud_ROS);
-    cloud_ROS.header.stamp = stamp;
-    cloud_ROS.header.frame_id = frame_id;
-    return cloud_ROS;
+template<typename PointT> inline
+sensor_msgs::msg::PointCloud2::UniquePtr PatchWorkpp<PointT>::cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id)
+{
+    sensor_msgs::msg::PointCloud2::UniquePtr cloud_ROS = std::make_unique<sensor_msgs::msg::PointCloud2>();
+    pcl::toROSMsg(cloud, *cloud_ROS);
+    cloud_ROS->header.stamp = stamp;
+    cloud_ROS->header.frame_id = frame_id;
+    return std::move(cloud_ROS);
 }
 
 template<typename PointT> inline
