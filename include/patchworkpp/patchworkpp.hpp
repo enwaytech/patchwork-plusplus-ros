@@ -130,6 +130,9 @@ public:
         this->get_parameter("czm.num_zones", num_zones_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Num. zones: %d", num_zones_);
 
+        this->declare_parameter<bool>("visualize", visualize_);
+        this->get_parameter("visualize", visualize_);
+
         if (num_zones_ != 4 || num_sectors_each_zone_.size() != num_rings_each_zone_.size()) {
             throw invalid_argument("Some parameters are wrong! Check the num_zones and num_rings/sectors_each_zone");
         }
@@ -237,7 +240,7 @@ private:
     Eigen::Vector4f pc_mean_;
 
     // For visualization
-    bool visualize_ = false;
+    bool visualize_;
     vector<long> num_sectors_each_zone_;
     vector<long> num_rings_each_zone_;
     vector<double> sector_sizes_;
