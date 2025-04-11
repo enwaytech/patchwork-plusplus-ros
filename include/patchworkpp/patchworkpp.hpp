@@ -130,9 +130,39 @@ public:
         this->get_parameter("czm.num_zones", num_zones_);
         RCLCPP_INFO(rclcpp::get_logger("patchworkpp"), "Num. zones: %d", num_zones_);
 
-        this->declare_parameter<bool>("visualize", visualize_);
+        this->declare_parameter<bool>("visualize", false);
         this->get_parameter("visualize", visualize_);
 
+        revert_pc_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
+        ground_pc_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
+        regionwise_ground_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
+        regionwise_nonground_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
+
+        pub_revert_pc_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("revert_pc", 1);
+        pub_reject_pc_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("reject_pc", 1);
+        pub_noise_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("noise", 1);
+        pub_vertical_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("vertical", 1);
+        pub_minimum_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("minimum", 1);
+        pub_threshold_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("threshold", 1);
+        pub_upright_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("upright", 1);
+        pub_heading_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("heading", 1);
+
+        pub_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("ground", rclcpp::SensorDataQoS().keep_last(1));
+        pub_non_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("nonground", rclcpp::SensorDataQoS().keep_last(1));
+        sub_cloud_ = Node::create_subscription<sensor_msgs::msg::PointCloud2>("cloud", rclcpp::SensorDataQoS().keep_last(1), std::bind(&PatchWorkpp<PointT>::callbackCloud, this, std::placeholders::_1));
+        initializeParameters();
+
+        npi_ = this->get_node_parameters_interface();
+        // set up the parameter change callback
+        on_set_parameters_callback_handle_ = npi_->add_on_set_parameters_callback(
+            std::bind(&PatchWorkpp<PointT>::onSetParameters, this, std::placeholders::_1));
+        post_set_parameters_callback_handle_ = npi_->add_post_set_parameters_callback(
+            std::bind(&PatchWorkpp<PointT>::postUpdateParameters, this, std::placeholders::_1));
+    }
+
+    void estimate_ground(pcl::PointCloud<PointT> cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
+    void initializeParameters()
+    {
         if (num_zones_ != 4 || num_sectors_each_zone_.size() != num_rings_each_zone_.size()) {
             throw invalid_argument("Some parameters are wrong! Check the num_zones and num_rings/sectors_each_zone");
         }
@@ -155,21 +185,6 @@ public:
                  flatness_thr_[3]).str() << endl;
         num_rings_of_interest_ = elevation_thr_.size();
 
-        int num_polygons = std::inner_product(num_rings_each_zone_.begin(), num_rings_each_zone_.end(), num_sectors_each_zone_.begin(), 0);
-        revert_pc_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
-        ground_pc_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
-        regionwise_ground_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
-        regionwise_nonground_.reserve(NUM_HEURISTIC_MAX_PTS_IN_PATCH);
-
-        pub_revert_pc_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("revert_pc", 1);
-        pub_reject_pc_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("reject_pc", 1);
-        pub_noise_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("noise", 1);
-        pub_vertical_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("vertical", 1);
-        pub_minimum_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("minimum", 1);
-        pub_threshold_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("threshold", 1);
-        pub_upright_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("upright", 1);
-        pub_heading_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("heading", 1);
-
         min_range_z2_ = (7 * min_range_ + max_range_) / 8.0;
         min_range_z3_ = (3 * min_range_ + max_range_) / 4.0;
         min_range_z4_ = (min_range_ + max_range_) / 2.0;
@@ -184,18 +199,14 @@ public:
                         2 * M_PI / num_sectors_each_zone_.at(3)};
 
         cout << "INITIALIZATION COMPLETE" << endl;
+        ConcentricZoneModel_.clear();
         for (int i = 0; i < num_zones_; i++) {
             Zone z;
             initialize_zone(z, num_sectors_each_zone_[i], num_rings_each_zone_[i]);
             ConcentricZoneModel_.push_back(z);
         }
-
-        pub_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("ground", rclcpp::SensorDataQoS().keep_last(1));
-        pub_non_ground_ = Node::create_publisher<sensor_msgs::msg::PointCloud2>("nonground", rclcpp::SensorDataQoS().keep_last(1));
-        sub_cloud_ = Node::create_subscription<sensor_msgs::msg::PointCloud2>("cloud", rclcpp::SensorDataQoS().keep_last(1), std::bind(&PatchWorkpp<PointT>::callbackCloud, this, std::placeholders::_1));
     }
 
-    void estimate_ground(pcl::PointCloud<PointT> cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
 
 private:
     // Every private member variable is written with the undescore("_") in its end.
@@ -277,6 +288,10 @@ private:
     pcl::PointCloud<PointT> ground_pc_;
     pcl::PointCloud<PointT> regionwise_ground_, regionwise_nonground_;
 
+    rclcpp::node_interfaces::NodeParametersInterface::SharedPtr npi_;
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
+    rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr post_set_parameters_callback_handle_;
+
     void initialize_zone(Zone &z, int num_sectors, int num_rings);
     void flush_patches_in_zone(Zone &patches, int num_sectors, int num_rings);
     void flush_patches(std::vector<Zone> &czm);
@@ -303,7 +318,8 @@ private:
             const int zone_idx, const pcl::PointCloud<PointT> &p_sorted,
             pcl::PointCloud<PointT> &init_seeds, double th_seed);
     void callbackCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg);
-
+    rcl_interfaces::msg::SetParametersResult onSetParameters(const std::vector<rclcpp::Parameter> &params) const;
+    void postUpdateParameters(const std::vector<rclcpp::Parameter> &params);
     /* ROS Callbacks Functions */
     sensor_msgs::msg::PointCloud2::UniquePtr cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id = "map");
 };
@@ -1024,4 +1040,136 @@ void PatchWorkpp<PointT>::pc2czm(const pcl::PointCloud<PointT> &src, std::vector
     if (verbose_) cout << "[ CZM ] Divides pointcloud into the concentric zone model" << endl;
 }
 
+template<typename PointT> inline
+rcl_interfaces::msg::SetParametersResult
+PatchWorkpp<PointT>::onSetParameters(const std::vector<rclcpp::Parameter> &params) const
+{
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    result.reason = "Parameters validated successfully.";
+
+    // Create temporary copies to validate parameter changes
+    int tmp_num_zones = num_zones_;
+    std::vector<long> tmp_num_sectors = num_sectors_each_zone_;
+    std::vector<long> tmp_num_rings = num_rings_each_zone_;
+    std::vector<double> tmp_elevation_thr = elevation_thr_;
+    std::vector<double> tmp_flatness_thr = flatness_thr_;
+
+    // Apply incoming parameter changes to our temporary copies
+    for (const auto& param : params) {
+        if (param.get_name() == "czm.num_zones") {
+            tmp_num_zones = param.as_int();
+        }
+        else if (param.get_name() == "czm.num_sectors_each_zone") {
+            tmp_num_sectors = param.as_integer_array();
+        }
+        else if (param.get_name() == "czm.num_rings_each_zone") {
+            tmp_num_rings = param.as_integer_array();
+        }
+        else if (param.get_name() == "czm.elevation_thresholds") {
+            tmp_elevation_thr = param.as_double_array();
+        }
+        else if (param.get_name() == "czm.flatness_thresholds") {
+            tmp_flatness_thr = param.as_double_array();
+        }
+    }
+
+    // Validate parameters
+    if (tmp_num_zones != 4) {
+        result.successful = false;
+        result.reason = "num_zones must be 4";
+    }
+
+    if (tmp_num_sectors.size() != tmp_num_rings.size()) {
+        result.successful = false;
+        result.reason = "num_sectors_each_zone and num_rings_each_zone must have the same size";
+    }
+
+    if (tmp_num_sectors.size() != static_cast<size_t>(tmp_num_zones)) {
+        result.successful = false;
+        result.reason = "num_sectors_each_zone size must match num_zones";
+    }
+
+    if (tmp_elevation_thr.size() != tmp_flatness_thr.size()) {
+        result.successful = false;
+        result.reason = "elevation_thresholds and flatness_thresholds must have the same size";
+    }
+
+    if (!result.successful)
+    {
+        RCLCPP_ERROR_STREAM(rclcpp::get_logger("patchworkpp"), "Parameter validation failed: " << result.reason);
+    }
+
+    return result;
+}
+
+template<typename PointT> inline
+void
+PatchWorkpp<PointT>::postUpdateParameters(const std::vector<rclcpp::Parameter>& params)
+{
+    for (const auto& param : params) {
+        cout << param.get_name() << " : " << param.value_to_string() << endl;
+        if (param.get_name() == "enable_RNR") {
+            enable_RNR_ = param.as_bool();
+        } else if (param.get_name() == "enable_RVPF") {
+            enable_RVPF_ = param.as_bool();
+        } else if (param.get_name() == "enable_TGR") {
+            enable_TGR_ = param.as_bool();
+        } else if (param.get_name() == "verbose") {
+            verbose_ = param.as_bool();
+        } else if (param.get_name() == "display_time") {
+            display_time_ = param.as_bool();
+        } else if (param.get_name() == "sensor_height") {
+            sensor_height_ = param.as_double();
+        } else if (param.get_name() == "th_seeds") {
+            th_seeds_ = param.as_double();
+        } else if (param.get_name() == "th_seeds_v") {
+            th_seeds_v_ = param.as_double();
+        } else if (param.get_name() == "th_dist") {
+            th_dist_ = param.as_double();
+        } else if (param.get_name() == "th_dist_v") {
+            th_dist_v_ = param.as_double();
+        } else if (param.get_name() == "max_r") {
+            max_range_ = param.as_double();
+        } else if (param.get_name() == "min_r") {
+            min_range_ = param.as_double();
+        } else if (param.get_name() == "max_r") {
+            max_range_ = param.as_double();
+        } else if (param.get_name() == "uprightness_thr") {
+            uprightness_thr_ = param.as_double();
+        } else if (param.get_name() == "adaptive_seed_selection_margin") {
+            adaptive_seed_selection_margin_ = param.as_double();
+        } else if (param.get_name() == "RNR_ver_angle_thr") {
+            RNR_ver_angle_thr_ = param.as_double();
+        } else if (param.get_name() == "RNR_intensity_thr") {
+            RNR_intensity_thr_ = param.as_double();
+        } else if (param.get_name() == "num_iter") {
+            num_iter_ = param.as_int();
+        } else if (param.get_name() == "num_lpr") {
+            num_lpr_ = param.as_int();
+        } else if (param.get_name() == "num_min_pts") {
+            num_min_pts_ = param.as_int();
+        } else if (param.get_name() == "num_rings_of_interest") {
+            num_rings_of_interest_ = param.as_int();
+        } else if (param.get_name() == "max_elevation_storage") {
+            max_elevation_storage_ = param.as_int();
+        } else if (param.get_name() == "max_flatness_storage") {
+            max_flatness_storage_ = param.as_int();
+        } else if (param.get_name() == "czm.num_sectors_each_zone") {
+            num_sectors_each_zone_ = param.as_integer_array();
+        } else if (param.get_name() == "czm.elevation_threshold") {
+            elevation_thr_ = param.as_double_array();
+        } else if (param.get_name() == "czm.flatness_threshold") {
+            flatness_thr_ = param.as_double_array();
+        } else if (param.get_name() == "czm.num_rings_each_zone") {
+            num_rings_each_zone_ = param.as_integer_array();
+        } else if (param.get_name() == "czm.num_zones") {
+            num_zones_ = param.as_int();
+        } else if (param.get_name() == "visualize") {
+            visualize_ = param.as_bool();
+        }
+
+    }
+    initializeParameters();
+}
 #endif
