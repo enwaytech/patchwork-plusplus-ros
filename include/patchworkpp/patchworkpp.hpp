@@ -1133,8 +1133,6 @@ PatchWorkpp<PointT>::postUpdateParameters(const std::vector<rclcpp::Parameter>& 
             max_range_ = param.as_double();
         } else if (param.get_name() == "min_r") {
             min_range_ = param.as_double();
-        } else if (param.get_name() == "max_r") {
-            max_range_ = param.as_double();
         } else if (param.get_name() == "uprightness_thr") {
             uprightness_thr_ = param.as_double();
         } else if (param.get_name() == "adaptive_seed_selection_margin") {
@@ -1157,9 +1155,9 @@ PatchWorkpp<PointT>::postUpdateParameters(const std::vector<rclcpp::Parameter>& 
             max_flatness_storage_ = param.as_int();
         } else if (param.get_name() == "czm.num_sectors_each_zone") {
             num_sectors_each_zone_ = param.as_integer_array();
-        } else if (param.get_name() == "czm.elevation_threshold") {
+        } else if (param.get_name() == "czm.elevation_thresholds") {
             elevation_thr_ = param.as_double_array();
-        } else if (param.get_name() == "czm.flatness_threshold") {
+        } else if (param.get_name() == "czm.flatness_thresholds") {
             flatness_thr_ = param.as_double_array();
         } else if (param.get_name() == "czm.num_rings_each_zone") {
             num_rings_each_zone_ = param.as_integer_array();
