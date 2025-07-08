@@ -1078,25 +1078,24 @@ PatchWorkpp<PointT>::onSetParameters(const std::vector<rclcpp::Parameter> &param
     if (tmp_num_zones != 4) {
         result.successful = false;
         result.reason = "num_zones must be 4";
+        RCLCPP_ERROR_STREAM(rclcpp::get_logger("patchworkpp"), "Parameter validation failed: " << result.reason);
     }
 
     if (tmp_num_sectors.size() != tmp_num_rings.size()) {
         result.successful = false;
         result.reason = "num_sectors_each_zone and num_rings_each_zone must have the same size";
+        RCLCPP_ERROR_STREAM(rclcpp::get_logger("patchworkpp"), "Parameter validation failed: " << result.reason);
     }
 
     if (tmp_num_sectors.size() != static_cast<size_t>(tmp_num_zones)) {
         result.successful = false;
         result.reason = "num_sectors_each_zone size must match num_zones";
+        RCLCPP_ERROR_STREAM(rclcpp::get_logger("patchworkpp"), "Parameter validation failed: " << result.reason);
     }
 
     if (tmp_elevation_thr.size() != tmp_flatness_thr.size()) {
         result.successful = false;
         result.reason = "elevation_thresholds and flatness_thresholds must have the same size";
-    }
-
-    if (!result.successful)
-    {
         RCLCPP_ERROR_STREAM(rclcpp::get_logger("patchworkpp"), "Parameter validation failed: " << result.reason);
     }
 
