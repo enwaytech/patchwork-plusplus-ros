@@ -62,6 +62,19 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# --- Optional microbenchmarks (gated, OFF by default) ---
+option(PATCHWORKPP_BUILD_BENCHMARKS "Build patchworkpp microbenchmarks" OFF)
+if(PATCHWORKPP_BUILD_BENCHMARKS)
+  find_package(PCL REQUIRED)
+  find_package(ament_cmake_google_benchmark REQUIRED)
+  ament_add_google_benchmark(bench_msg_conversion benchmark/bench_msg_conversion.cpp)
+  ament_target_dependencies(bench_msg_conversion
+    pcl_conversions
+    sensor_msgs
+  )
+  target_link_libraries(bench_msg_conversion ${PCL_LIBRARIES})
+endif()
+
 ament_export_dependencies(ament_cmake)
 ament_export_dependencies(${DEPENDENCIES})
 ament_export_include_directories(${INCLUDE_DIRS})

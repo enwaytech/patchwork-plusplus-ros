@@ -21,8 +21,8 @@
 #include <patchworkpp/utils.hpp>
 #include <pcl_ros/transforms.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.hpp>
+#include <tf2_ros/transform_listener.hpp>
 
 #define MARKER_Z_VALUE -2.2
 #define UPRIGHT_ENOUGH 0.55
@@ -944,46 +944,73 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
     }
     if (visualize_)
     {
+        // Guard each debug-cloud conversion behind its subscriber count:
+        // pcl::toROSMsg is the dominant per-cloud CPU cost and is wasted when
+        // no one (e.g. RViz) is listening on a given debug topic.
         sensor_msgs::msg::PointCloud2 cloud_ROS;
-        pcl::toROSMsg(revert_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = cloud_msg->header.frame_id;
-        pub_revert_pc_->publish(cloud_ROS);
+        if (pub_revert_pc_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(revert_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = cloud_msg->header.frame_id;
+            pub_revert_pc_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(reject_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_reject_pc_->publish(cloud_ROS);
+        if (pub_reject_pc_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(reject_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_reject_pc_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(noise_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_noise_->publish(cloud_ROS);
+        if (pub_noise_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(noise_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_noise_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(vertical_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_vertical_->publish(cloud_ROS);
+        if (pub_vertical_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(vertical_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_vertical_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(minimum_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_minimum_->publish(cloud_ROS);
+        if (pub_minimum_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(minimum_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_minimum_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(threshold_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_threshold_->publish(cloud_ROS);
+        if (pub_threshold_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(threshold_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_threshold_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(upright_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_upright_->publish(cloud_ROS);
+        if (pub_upright_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(upright_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_upright_->publish(cloud_ROS);
+        }
 
-        pcl::toROSMsg(heading_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_heading_->publish(cloud_ROS);
+        if (pub_heading_->get_subscription_count() > 0)
+        {
+            pcl::toROSMsg(heading_pc_, cloud_ROS);
+            cloud_ROS.header.stamp = cloud_msg->header.stamp;
+            cloud_ROS.header.frame_id = output_frame;
+            pub_heading_->publish(cloud_ROS);
+        }
     }
 
     if (pub_ground_->get_subscription_count() > 0)
