@@ -16,8 +16,10 @@
 #include <eigen3/Eigen/Dense>
 #include <boost/format.hpp>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <numeric>
 #include <queue>
 #include <mutex>
@@ -51,9 +53,12 @@ bool point_z_cmp(const PointT &a, const PointT &b) { return a.z < b.z; }
     Sorts points by z with exactly the result of std::sort(points.begin(), points.end(), point_z_cmp<PointT>).
     std::sort decides only from comparisons, so sorting (z, index) pairs with the same comparison yields the same
     permutation, including the order of points with equal z, while moving much less data.
+    If all z values are distinct, every correct sort yields that permutation, so a radix sort is tried first and the
+    comparison sort only runs when z values repeat (or are NaN). had_ties remembers whether they repeated, so that
+    patches which keep having equal z values (e.g. flat simulated ground) go to the comparison sort directly.
 */
 template <typename PointT, typename Allocator>
-void sort_points_by_z(std::vector<PointT, Allocator> &points)
+void sort_points_by_z(std::vector<PointT, Allocator> &points, bool &had_ties)
 {
     struct ZKey
     {
@@ -61,11 +66,46 @@ void sort_points_by_z(std::vector<PointT, Allocator> &points)
         uint32_t index;
     };
     thread_local std::vector<ZKey> keys;
+    thread_local std::vector<ZKey> buffer;
     thread_local std::vector<PointT, Allocator> sorted;
 
-    keys.resize(points.size());
-    for (size_t i = 0; i < points.size(); ++i) keys[i] = {points[i].z, static_cast<uint32_t>(i)};
-    std::sort(keys.begin(), keys.end(), [](const ZKey &a, const ZKey &b) { return a.z < b.z; });
+    const size_t n = points.size();
+    const auto load_keys = [&points, n]() {
+        keys.resize(n);
+        for (size_t i = 0; i < n; ++i) keys[i] = {points[i].z, static_cast<uint32_t>(i)};
+    };
+    const auto distinct = []() {
+        for (size_t i = 1; i < keys.size(); ++i) {
+            if (!(keys[i - 1].z < keys[i].z)) return false;
+        }
+        return true;
+    };
+
+    load_keys();
+    bool sorted_by_radix = false;
+    if (!had_ties) {
+        // LSD radix sort, 8 bits per pass, on an unsigned key that orders like the float.
+        const auto radix_key = [](float z) {
+            uint32_t bits;
+            std::memcpy(&bits, &z, sizeof(bits));
+            return (bits & 0x80000000u) ? ~bits : (bits | 0x80000000u);
+        };
+        buffer.resize(n);
+        for (int shift = 0; shift < 32 && n > 1; shift += 8) {
+            std::array<size_t, 257> offsets{};
+            for (const auto &key : keys) ++offsets[((radix_key(key.z) >> shift) & 0xFFu) + 1];
+            if (offsets[((radix_key(keys[0].z) >> shift) & 0xFFu) + 1] == n) continue;  // all keys share this byte
+            for (size_t b = 1; b < offsets.size(); ++b) offsets[b] += offsets[b - 1];
+            for (const auto &key : keys) buffer[offsets[(radix_key(key.z) >> shift) & 0xFFu]++] = key;
+            keys.swap(buffer);
+        }
+        sorted_by_radix = distinct();
+        if (!sorted_by_radix) load_keys();
+    }
+    if (!sorted_by_radix) {
+        std::sort(keys.begin(), keys.end(), [](const ZKey &a, const ZKey &b) { return a.z < b.z; });
+        had_ties = !distinct();
+    }
 
     sorted.clear();
     sorted.reserve(points.size());
@@ -296,6 +336,8 @@ private:
     vector<double> flatness_thr_;
     queue<int> noise_idxs_;
     vector<Zone> ConcentricZoneModel_;
+    // Per patch, whether its z values repeated in the previous frame (see sort_points_by_z).
+    vector<char> patch_had_ties_;
 
     std::string target_frame_;
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer_;
@@ -399,7 +441,7 @@ template<typename PointT> inline
 void PatchWorkpp<PointT>::estimate_plane(const pcl::PointCloud<PointT> &ground) {
     pcl::computeMeanAndCovarianceMatrix(ground, cov_, pc_mean_);
     // Singular Value Decomposition: SVD
-    Eigen::JacobiSVD<Eigen::MatrixXf> svd(cov_, Eigen::DecompositionOptions::ComputeFullU);
+    Eigen::JacobiSVD<Eigen::Matrix3f> svd(cov_, Eigen::DecompositionOptions::ComputeFullU);
     singular_values_ = svd.singularValues();
 
     // use the least singular vector as normal
@@ -561,13 +603,14 @@ void PatchWorkpp<PointT>::estimate_ground(
 
     std::vector<RevertCandidate<PointT>> candidates;
     std::vector<double> ringwise_flatness;
+    size_t patch_idx = 0;
 
     for (int zone_idx = 0; zone_idx < num_zones_; ++zone_idx) {
 
         auto &zone = ConcentricZoneModel_[zone_idx];
 
         for (int ring_idx = 0; ring_idx < num_rings_each_zone_[zone_idx]; ++ring_idx) {
-            for (int sector_idx = 0; sector_idx < num_sectors_each_zone_[zone_idx]; ++sector_idx) {
+            for (int sector_idx = 0; sector_idx < num_sectors_each_zone_[zone_idx]; ++sector_idx, ++patch_idx) {
 
                 if (zone[ring_idx][sector_idx].points.size() < num_min_pts_)
                 {
@@ -579,7 +622,10 @@ void PatchWorkpp<PointT>::estimate_ground(
                 // --------- region-wise sorting (faster than global sorting method) ---------------- //
                 double t_sort_0 = steady_seconds();
 
-                sort_points_by_z(zone[ring_idx][sector_idx].points);
+                if (patch_had_ties_.size() <= patch_idx) patch_had_ties_.resize(patch_idx + 1, false);
+                bool had_ties = patch_had_ties_[patch_idx];
+                sort_points_by_z(zone[ring_idx][sector_idx].points, had_ties);
+                patch_had_ties_[patch_idx] = had_ties;
 
                 double t_sort_1 = steady_seconds();
                 t_sort += (t_sort_1 - t_sort_0);
@@ -841,20 +887,23 @@ void PatchWorkpp<PointT>::extract_piecewiseground(
 
     // 1. Region-wise Vertical Plane Fitting (R-VPF)
     // : removes potential vertical plane under the ground plane
-    pcl::PointCloud<PointT> src_wo_verticals;
-    src_wo_verticals = src;
+    // Points without verticals; src itself until vertical points are removed.
+    pcl::PointCloud<PointT> src_wo_verticals_storage;
+    const pcl::PointCloud<PointT> *src_wo_verticals_ptr = &src;
 
     if (enable_RVPF_)
     {
         for (int i = 0; i < num_iter_; i++)
         {
-            extract_initial_seeds(zone_idx, src_wo_verticals, ground_pc_, th_seeds_v_);
+            extract_initial_seeds(zone_idx, *src_wo_verticals_ptr, ground_pc_, th_seeds_v_);
             estimate_plane(ground_pc_);
 
             if (zone_idx == 0 && normal_(2) < uprightness_thr_)
             {
                 pcl::PointCloud<PointT> src_tmp;
-                src_tmp = src_wo_verticals;
+                src_tmp = *src_wo_verticals_ptr;
+                auto &src_wo_verticals = src_wo_verticals_storage;
+                src_wo_verticals_ptr = &src_wo_verticals;
                 src_wo_verticals.clear();
 
                 Eigen::MatrixXf points(src_tmp.points.size(), 3);
@@ -877,6 +926,7 @@ void PatchWorkpp<PointT>::extract_piecewiseground(
             else break;
         }
     }
+    const pcl::PointCloud<PointT> &src_wo_verticals = *src_wo_verticals_ptr;
 
     extract_initial_seeds(zone_idx, src_wo_verticals, ground_pc_);
     estimate_plane(ground_pc_);
