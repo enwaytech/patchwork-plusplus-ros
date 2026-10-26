@@ -15,6 +15,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <eigen3/Eigen/Dense>
 #include <boost/format.hpp>
+#include <chrono>
 #include <numeric>
 #include <queue>
 #include <mutex>
@@ -42,7 +43,13 @@ using namespace std;
     @brief PatchWork ROS Node.
 */
 template <typename PointT>
-bool point_z_cmp(PointT a, PointT b) { return a.z < b.z; }
+bool point_z_cmp(const PointT &a, const PointT &b) { return a.z < b.z; }
+
+// Steady clock time in seconds, used for the timing output only.
+inline double steady_seconds()
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 template <typename PointT>
 struct RevertCandidate
@@ -160,7 +167,7 @@ public:
             std::bind(&PatchWorkpp<PointT>::postUpdateParameters, this, std::placeholders::_1));
     }
 
-    void estimate_ground(pcl::PointCloud<PointT> cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
+    void estimate_ground(const pcl::PointCloud<PointT> &cloud_in, pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground, double &time_taken);
     void initializeParameters()
     {
         if (num_zones_ != 4 || num_sectors_each_zone_.size() != num_rings_each_zone_.size()) {
@@ -296,12 +303,12 @@ private:
     void flush_patches_in_zone(Zone &patches, int num_sectors, int num_rings);
     void flush_patches(std::vector<Zone> &czm);
     void pc2czm(const pcl::PointCloud<PointT> &src, std::vector<Zone> &czm, pcl::PointCloud<PointT> &cloud_nonground);
-    void reflected_noise_removal(pcl::PointCloud<PointT> &cloud, pcl::PointCloud<PointT> &cloud_nonground);
+    void reflected_noise_removal(const pcl::PointCloud<PointT> &cloud, pcl::PointCloud<PointT> &cloud_nonground);
     void temporal_ground_revert(pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground,
-                                std::vector<double> ring_flatness, std::vector<RevertCandidate<PointT>> candidates,
+                                const std::vector<double> &ring_flatness, const std::vector<RevertCandidate<PointT>> &candidates,
                                 int concentric_idx);
 
-    void calc_mean_stdev(std::vector<double> vec, double &mean, double &stdev);
+    void calc_mean_stdev(const std::vector<double> &vec, double &mean, double &stdev);
     void update_elevation_thr();
     void update_flatness_thr();
     double xy2theta(const double &x, const double &y);
@@ -321,7 +328,7 @@ private:
     rcl_interfaces::msg::SetParametersResult onSetParameters(const std::vector<rclcpp::Parameter> &params) const;
     void postUpdateParameters(const std::vector<rclcpp::Parameter> &params);
     /* ROS Callbacks Functions */
-    sensor_msgs::msg::PointCloud2::UniquePtr cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id = "map");
+    sensor_msgs::msg::PointCloud2::UniquePtr cloud2msg(const pcl::PointCloud<PointT> &cloud, const rclcpp::Time& stamp, std::string frame_id = "map");
 };
 
 template<typename PointT> inline
@@ -451,7 +458,7 @@ void PatchWorkpp<PointT>::extract_initial_seeds(
 }
 
 template<typename PointT> inline
-void PatchWorkpp<PointT>::reflected_noise_removal(pcl::PointCloud<PointT> &cloud_in, pcl::PointCloud<PointT> &cloud_nonground)
+void PatchWorkpp<PointT>::reflected_noise_removal(const pcl::PointCloud<PointT> &cloud_in, pcl::PointCloud<PointT> &cloud_nonground)
 {
     for (int i=0; i<cloud_in.size(); i++)
     {
@@ -478,7 +485,7 @@ void PatchWorkpp<PointT>::reflected_noise_removal(pcl::PointCloud<PointT> &cloud
 
 template<typename PointT> inline
 void PatchWorkpp<PointT>::estimate_ground(
-        pcl::PointCloud<PointT> cloud_in,
+        const pcl::PointCloud<PointT> &cloud_in,
         pcl::PointCloud<PointT> &cloud_ground,
         pcl::PointCloud<PointT> &cloud_nonground,
         double &time_taken) {
@@ -492,7 +499,7 @@ void PatchWorkpp<PointT>::estimate_ground(
     double t_total_estimate = 0.0;
 
     // start = ros::Time::now().toSec();
-    start = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+    start = steady_seconds();
 
     cloud_ground.clear();
     cloud_nonground.clear();
@@ -509,13 +516,13 @@ void PatchWorkpp<PointT>::estimate_ground(
     // 1. Reflected Noise Removal (RNR)
     if (enable_RNR_) reflected_noise_removal(cloud_in, cloud_nonground);
 
-    t1 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+    t1 = steady_seconds();
 
     // 2. Concentric Zone Model (CZM)
     flush_patches(ConcentricZoneModel_);
     pc2czm(cloud_in, ConcentricZoneModel_, cloud_nonground);
 
-    t2 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+    t2 = steady_seconds();
 
     int concentric_idx = 0;
 
@@ -526,7 +533,7 @@ void PatchWorkpp<PointT>::estimate_ground(
 
     for (int zone_idx = 0; zone_idx < num_zones_; ++zone_idx) {
 
-        auto zone = ConcentricZoneModel_[zone_idx];
+        auto &zone = ConcentricZoneModel_[zone_idx];
 
         for (int ring_idx = 0; ring_idx < num_rings_each_zone_[zone_idx]; ++ring_idx) {
             for (int sector_idx = 0; sector_idx < num_sectors_each_zone_[zone_idx]; ++sector_idx) {
@@ -539,18 +546,18 @@ void PatchWorkpp<PointT>::estimate_ground(
                 }
 
                 // --------- region-wise sorting (faster than global sorting method) ---------------- //
-                double t_sort_0 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+                double t_sort_0 = steady_seconds();
 
                 sort(zone[ring_idx][sector_idx].points.begin(), zone[ring_idx][sector_idx].points.end(), point_z_cmp<PointT>);
 
-                double t_sort_1 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+                double t_sort_1 = steady_seconds();
                 t_sort += (t_sort_1 - t_sort_0);
                 // ---------------------------------------------------------------------------------- //
 
-                double t_tmp0 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+                double t_tmp0 = steady_seconds();
                 extract_piecewiseground(zone_idx, zone[ring_idx][sector_idx], regionwise_ground_, regionwise_nonground_);
 
-                double t_tmp1 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+                double t_tmp1 = steady_seconds();
                 t_total_ground += t_tmp1 - t_tmp0;
                 pca_time_ += t_tmp1 - t_tmp0;
 
@@ -565,7 +572,7 @@ void PatchWorkpp<PointT>::estimate_ground(
                 for(int i=0; i<3; i++) heading += pc_mean_(i,0)*normal_(i);
 
 
-                double t_tmp2 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+                double t_tmp2 = steady_seconds();
 
                 /*
                     About 'is_heading_outside' condidition, heading should be smaller than 0 theoretically.
@@ -618,16 +625,16 @@ void PatchWorkpp<PointT>::estimate_ground(
                 else
                 {
                     RevertCandidate<PointT> candidate(concentric_idx, sector_idx, ground_flatness, line_variable, pc_mean_, regionwise_ground_);
-                    candidates.push_back(candidate);
+                    candidates.push_back(std::move(candidate));
                 }
                 // Every regionwise_nonground is considered nonground.
                 cloud_nonground += regionwise_nonground_;
 
-                double t_tmp3 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+                double t_tmp3 = steady_seconds();
                 t_total_estimate += t_tmp3 - t_tmp2;
             }
 
-            double t_bef_revert = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+            double t_bef_revert = steady_seconds();
 
             if (!candidates.empty())
             {
@@ -647,7 +654,7 @@ void PatchWorkpp<PointT>::estimate_ground(
                 ringwise_flatness.clear();
             }
 
-            double t_aft_revert = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+            double t_aft_revert = steady_seconds();
 
             t_revert += t_aft_revert - t_bef_revert;
 
@@ -655,12 +662,12 @@ void PatchWorkpp<PointT>::estimate_ground(
         }
     }
 
-    double t_update = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+    double t_update = steady_seconds();
 
     update_elevation_thr();
     update_flatness_thr();
 
-    end = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
+    end = steady_seconds();
     time_taken = end - start;
 }
 
@@ -720,7 +727,7 @@ void PatchWorkpp<PointT>::update_flatness_thr(void)
 
 template<typename PointT> inline
 void PatchWorkpp<PointT>::temporal_ground_revert(pcl::PointCloud<PointT> &cloud_ground, pcl::PointCloud<PointT> &cloud_nonground,
-                                               std::vector<double> ring_flatness, std::vector<RevertCandidate<PointT>> candidates,
+                                               const std::vector<double> &ring_flatness, const std::vector<RevertCandidate<PointT>> &candidates,
                                                int concentric_idx)
 {
     if (verbose_) std::cout << "\033[1;34m" << "=========== Temporal Ground Revert (TGR) ===========" << "\033[0m" << endl;
@@ -736,7 +743,7 @@ void PatchWorkpp<PointT>::temporal_ground_revert(pcl::PointCloud<PointT> &cloud_
 
     for( size_t i=0; i<candidates.size(); i++ )
     {
-        RevertCandidate<PointT> candidate = candidates[i];
+        const RevertCandidate<PointT> &candidate = candidates[i];
 
         // Debug
         if(verbose_)
@@ -881,7 +888,7 @@ void PatchWorkpp<PointT>::extract_piecewiseground(
 }
 
 template<typename PointT> inline
-void PatchWorkpp<PointT>::calc_mean_stdev(std::vector<double> vec, double &mean, double &stdev)
+void PatchWorkpp<PointT>::calc_mean_stdev(const std::vector<double> &vec, double &mean, double &stdev)
 {
     if (vec.size() <= 1) return;
 
@@ -944,46 +951,21 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
     }
     if (visualize_)
     {
-        sensor_msgs::msg::PointCloud2 cloud_ROS;
-        pcl::toROSMsg(revert_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = cloud_msg->header.frame_id;
-        pub_revert_pc_->publish(cloud_ROS);
-
-        pcl::toROSMsg(reject_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_reject_pc_->publish(cloud_ROS);
-
-        pcl::toROSMsg(noise_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_noise_->publish(cloud_ROS);
-
-        pcl::toROSMsg(vertical_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_vertical_->publish(cloud_ROS);
-
-        pcl::toROSMsg(minimum_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_minimum_->publish(cloud_ROS);
-
-        pcl::toROSMsg(threshold_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_threshold_->publish(cloud_ROS);
-
-        pcl::toROSMsg(upright_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_upright_->publish(cloud_ROS);
-
-        pcl::toROSMsg(heading_pc_, cloud_ROS);
-        cloud_ROS.header.stamp = cloud_msg->header.stamp;
-        cloud_ROS.header.frame_id = output_frame;
-        pub_heading_->publish(cloud_ROS);
+        // Debug clouds are only converted when somebody listens.
+        const auto publish_debug_cloud = [this, &cloud_msg](const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub,
+                                                            const pcl::PointCloud<PointT> &cloud, const std::string &frame_id)
+        {
+            if (pub->get_subscription_count() == 0) return;
+            pub->publish(cloud2msg(cloud, cloud_msg->header.stamp, frame_id));
+        };
+        publish_debug_cloud(pub_revert_pc_, revert_pc_, cloud_msg->header.frame_id);
+        publish_debug_cloud(pub_reject_pc_, reject_pc_, output_frame);
+        publish_debug_cloud(pub_noise_, noise_pc_, output_frame);
+        publish_debug_cloud(pub_vertical_, vertical_pc_, output_frame);
+        publish_debug_cloud(pub_minimum_, minimum_pc_, output_frame);
+        publish_debug_cloud(pub_threshold_, threshold_pc_, output_frame);
+        publish_debug_cloud(pub_upright_, upright_pc_, output_frame);
+        publish_debug_cloud(pub_heading_, heading_pc_, output_frame);
     }
 
     if (pub_ground_->get_subscription_count() > 0)
@@ -997,7 +979,7 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
 }
 
 template<typename PointT> inline
-sensor_msgs::msg::PointCloud2::UniquePtr PatchWorkpp<PointT>::cloud2msg(pcl::PointCloud<PointT> cloud, const rclcpp::Time& stamp, std::string frame_id)
+sensor_msgs::msg::PointCloud2::UniquePtr PatchWorkpp<PointT>::cloud2msg(const pcl::PointCloud<PointT> &cloud, const rclcpp::Time& stamp, std::string frame_id)
 {
     sensor_msgs::msg::PointCloud2::UniquePtr cloud_ROS = std::make_unique<sensor_msgs::msg::PointCloud2>();
     pcl::toROSMsg(cloud, *cloud_ROS);
