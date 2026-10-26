@@ -15,7 +15,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <eigen3/Eigen/Dense>
 #include <boost/format.hpp>
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <numeric>
 #include <queue>
 #include <mutex>
@@ -44,6 +46,32 @@ using namespace std;
 */
 template <typename PointT>
 bool point_z_cmp(const PointT &a, const PointT &b) { return a.z < b.z; }
+
+/*
+    Sorts points by z with exactly the result of std::sort(points.begin(), points.end(), point_z_cmp<PointT>).
+    std::sort decides only from comparisons, so sorting (z, index) pairs with the same comparison yields the same
+    permutation, including the order of points with equal z, while moving much less data.
+*/
+template <typename PointT, typename Allocator>
+void sort_points_by_z(std::vector<PointT, Allocator> &points)
+{
+    struct ZKey
+    {
+        float z;
+        uint32_t index;
+    };
+    thread_local std::vector<ZKey> keys;
+    thread_local std::vector<PointT, Allocator> sorted;
+
+    keys.resize(points.size());
+    for (size_t i = 0; i < points.size(); ++i) keys[i] = {points[i].z, static_cast<uint32_t>(i)};
+    std::sort(keys.begin(), keys.end(), [](const ZKey &a, const ZKey &b) { return a.z < b.z; });
+
+    sorted.clear();
+    sorted.reserve(points.size());
+    for (const auto &key : keys) sorted.push_back(points[key.index]);
+    points.swap(sorted);
+}
 
 // Steady clock time in seconds, used for the timing output only.
 inline double steady_seconds()
@@ -462,11 +490,14 @@ void PatchWorkpp<PointT>::reflected_noise_removal(const pcl::PointCloud<PointT> 
 {
     for (int i=0; i<cloud_in.size(); i++)
     {
-        double r = sqrt( cloud_in[i].x*cloud_in[i].x + cloud_in[i].y*cloud_in[i].y );
         double z = cloud_in[i].z;
+        // The vertical angle is only needed if the cheaper height and intensity conditions hold.
+        if ( !(z < -sensor_height_-0.8 && cloud_in[i].intensity < RNR_intensity_thr_) ) continue;
+
+        double r = sqrt( cloud_in[i].x*cloud_in[i].x + cloud_in[i].y*cloud_in[i].y );
         double ver_angle_in_deg = atan2(z, r)*180/M_PI;
 
-        if ( ver_angle_in_deg < RNR_ver_angle_thr_ && z < -sensor_height_-0.8 && cloud_in[i].intensity < RNR_intensity_thr_)
+        if ( ver_angle_in_deg < RNR_ver_angle_thr_ )
         {
             cloud_nonground.push_back(cloud_in[i]);
             noise_pc_.push_back(cloud_in[i]);
@@ -548,7 +579,7 @@ void PatchWorkpp<PointT>::estimate_ground(
                 // --------- region-wise sorting (faster than global sorting method) ---------------- //
                 double t_sort_0 = steady_seconds();
 
-                sort(zone[ring_idx][sector_idx].points.begin(), zone[ring_idx][sector_idx].points.end(), point_z_cmp<PointT>);
+                sort_points_by_z(zone[ring_idx][sector_idx].points);
 
                 double t_sort_1 = steady_seconds();
                 t_sort += (t_sort_1 - t_sort_0);
