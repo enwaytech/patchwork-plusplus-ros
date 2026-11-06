@@ -463,11 +463,14 @@ void PatchWorkpp<PointT>::reflected_noise_removal(const pcl::PointCloud<PointT> 
 {
     for (int i=0; i<cloud_in.size(); i++)
     {
-        double r = sqrt( cloud_in[i].x*cloud_in[i].x + cloud_in[i].y*cloud_in[i].y );
         double z = cloud_in[i].z;
+        // The vertical angle is only computed for low points with low intensity
+        if (!(z < -sensor_height_-0.8 && cloud_in[i].intensity < RNR_intensity_thr_)) continue;
+
+        double r = sqrt( cloud_in[i].x*cloud_in[i].x + cloud_in[i].y*cloud_in[i].y );
         double ver_angle_in_deg = atan2(z, r)*180/M_PI;
 
-        if ( ver_angle_in_deg < RNR_ver_angle_thr_ && z < -sensor_height_-0.8 && cloud_in[i].intensity < RNR_intensity_thr_)
+        if ( ver_angle_in_deg < RNR_ver_angle_thr_ )
         {
             cloud_nonground.push_back(cloud_in[i]);
             noise_pc_.push_back(cloud_in[i]);
