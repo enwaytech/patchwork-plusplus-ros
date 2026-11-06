@@ -1191,6 +1191,9 @@ void PatchWorkpp<PointT>::publish_cloud(const rclcpp::Publisher<sensor_msgs::msg
                                         const builtin_interfaces::msg::Time& stamp,
                                         const std::string& frame_id)
 {
+    // Like ground and nonground, only converted and published if someone subscribed
+    if (pub->get_subscription_count() == 0) return;
+
     // Published as unique_ptr so that intra-process publishing does not copy the message
     auto cloud_ROS = std::make_unique<sensor_msgs::msg::PointCloud2>();
     to_ros_msg(cloud, *cloud_ROS);
