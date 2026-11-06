@@ -199,14 +199,16 @@ public:
                         2 * M_PI / num_sectors_each_zone_.at(2),
                         2 * M_PI / num_sectors_each_zone_.at(3)};
 
-        // Direction (cos, sin) of every sector boundary, used by xy2sector()
+        // Direction (cos, sin) of every sector boundary and inverse sector sizes, used by xy2sector()
         sector_bounds_.clear();
+        sector_inv_sizes_.clear();
         for (int i = 0; i < num_zones_; i++) {
             std::vector<std::pair<double, double>> bounds;
             for (long k = 0; k <= num_sectors_each_zone_[i]; k++) {
                 bounds.emplace_back(std::cos(k * sector_sizes_[i]), std::sin(k * sector_sizes_[i]));
             }
             sector_bounds_.push_back(bounds);
+            sector_inv_sizes_.push_back(static_cast<float>(1.0 / sector_sizes_[i]));
         }
 
         cout << "INITIALIZATION COMPLETE" << endl;
@@ -267,6 +269,7 @@ private:
     vector<long> num_rings_each_zone_;
     vector<double> sector_sizes_;
     vector<vector<std::pair<double, double>>> sector_bounds_;
+    vector<float> sector_inv_sizes_;
     vector<double> ring_sizes_;
     vector<double> min_ranges_;
     vector<double> elevation_thr_;
@@ -1018,15 +1021,15 @@ int PatchWorkpp<PointT>::xy2sector(const double &x, const double &y, const int z
     const double ay = std::abs(y);
     const double max_xy = std::max(ax, ay);
     if (num_sectors >= 3 && max_xy > 0.0 && std::isfinite(max_xy)) {
-        // atan(a) for a in [0, 1], absolute error about 1e-5 rad
-        const double a = std::min(ax, ay) / max_xy;
-        const double s = a * a;
-        double angle = ((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a;
-        if (ay > ax) angle = M_PI_2 - angle;
-        if (x < 0) angle = M_PI - angle;
+        // Candidate from atan(a) for a in [0, 1], absolute error about 1e-5 rad (float is enough)
+        const float a = static_cast<float>(std::min(ax, ay)) / static_cast<float>(max_xy);
+        const float s = a * a;
+        float angle = ((-0.0464964749f * s + 0.15931422f) * s - 0.327622764f) * s * a + a;
+        if (ay > ax) angle = static_cast<float>(M_PI_2) - angle;
+        if (x < 0) angle = static_cast<float>(M_PI) - angle;
         if (y < 0) angle = -angle;
-        const double theta = angle > 0 ? angle : 2 * M_PI + angle;
-        const long k = std::min(static_cast<long>(theta / sector_sizes_[zone_idx]), num_sectors - 1);
+        const float theta = angle > 0 ? angle : static_cast<float>(2 * M_PI) + angle;
+        const long k = std::min(static_cast<long>(theta * sector_inv_sizes_[zone_idx]), num_sectors - 1);
 
         // Cross products with the boundary directions: > 0 if the point is counter-clockwise of it
         const auto& lower = sector_bounds_[zone_idx][k];
@@ -1138,7 +1141,8 @@ void PatchWorkpp<PointT>::pc2czm(const pcl::PointCloud<PointT> &src, std::vector
             else if ( r < min_ranges_[3] ) zone_idx = 2;
             else zone_idx = 3;
 
-            int ring_idx = min(static_cast<long>(((r - min_ranges_[zone_idx]) / ring_sizes_[zone_idx])), num_rings_each_zone_[zone_idx] - 1);
+            // A single ring has index 0 (r >= min_ranges_[zone_idx], so the quotient is not negative)
+            int ring_idx = num_rings_each_zone_[zone_idx] == 1 ? 0 : min(static_cast<long>(((r - min_ranges_[zone_idx]) / ring_sizes_[zone_idx])), num_rings_each_zone_[zone_idx] - 1);
             int sector_idx = xy2sector(pt.x, pt.y, zone_idx);
 
             czm[zone_idx][ring_idx][sector_idx].points.emplace_back(pt);
