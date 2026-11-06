@@ -18,6 +18,7 @@
 #include <numeric>
 #include <queue>
 #include <mutex>
+#include <cstring>
 #include <patchworkpp/utils.hpp>
 #include <pcl_ros/transforms.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
@@ -302,6 +303,11 @@ private:
     pcl::PointCloud<PointT> src_wo_verticals_buf_[2];
     // Callback clouds kept as members to reuse their memory between frames
     pcl::PointCloud<PointT> pc_curr_, pc_ground_, pc_non_ground_;
+    // Buffers of sort_by_z()
+    struct ZKey { float z; uint32_t idx; };
+    std::vector<ZKey> z_sort_keys_;
+    std::vector<uint64_t> z_radix_keys_[2];
+    pcl::PointCloud<PointT> z_sort_buf_;
 
     rclcpp::node_interfaces::NodeParametersInterface::SharedPtr npi_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
@@ -322,6 +328,7 @@ private:
     double xy2theta(const double &x, const double &y);
     double xy2radius(const double &x, const double &y);
     int xy2sector(const double &x, const double &y, const int zone_idx);
+    void sort_by_z(pcl::PointCloud<PointT> &cloud);
     void estimate_plane(const pcl::PointCloud<PointT> &ground);
     void extract_piecewiseground(
             const int zone_idx, const pcl::PointCloud<PointT> &src,
@@ -378,6 +385,70 @@ void PatchWorkpp<PointT>::flush_patches(vector<Zone> &czm) {
     }
 
     if( verbose_ ) cout << "Flushed patches" << endl;
+}
+
+/*
+    Same result as std::sort(cloud.points, point_z_cmp). If all z values are distinct (and not NaN),
+    the sorted order is unique and a radix sort on the z bits yields it. Otherwise std::sort runs on
+    (z, index) keys with the same comparison, so it performs the same steps and yields the same
+    permutation, including the order of equal z values. The points are then gathered in that order.
+*/
+template<typename PointT> inline
+void PatchWorkpp<PointT>::sort_by_z(pcl::PointCloud<PointT> &cloud) {
+    const size_t n = cloud.points.size();
+    auto& sorted = z_sort_buf_.points;
+    sorted.resize(n);
+
+    // Radix keys: z bits mapped to an unsigned order (high 32 bits) and the point index (low 32 bits)
+    std::vector<uint64_t>* src = &z_radix_keys_[0];
+    std::vector<uint64_t>* dst = &z_radix_keys_[1];
+    src->resize(n);
+    dst->resize(n);
+    bool distinct = true;
+    size_t count[4][256] = {};
+    for (size_t i = 0; i < n; i++) {
+        const float z = cloud.points[i].z;
+        uint32_t bits;
+        std::memcpy(&bits, &z, sizeof(bits));
+        if (z == 0.0f) bits = 0;  // -0.0 equals 0.0
+        if (z != z) distinct = false;  // NaN
+        const uint32_t key = (bits & 0x80000000u) ? ~bits : (bits | 0x80000000u);
+        (*src)[i] = (static_cast<uint64_t>(key) << 32) | i;
+        for (int p = 0; p < 4; p++) count[p][(key >> (8 * p)) & 0xff]++;
+    }
+    if (distinct && n > 0) {
+        for (int p = 0; p < 4; p++) {
+            const int shift = 32 + 8 * p;
+            if (count[p][((*src)[0] >> shift) & 0xff] == n) continue;  // same digit everywhere
+            size_t offset[256];
+            size_t sum = 0;
+            for (int b = 0; b < 256; b++) {
+                offset[b] = sum;
+                sum += count[p][b];
+            }
+            for (size_t i = 0; i < n; i++) {
+                const uint64_t v = (*src)[i];
+                (*dst)[offset[(v >> shift) & 0xff]++] = v;
+            }
+            std::swap(src, dst);
+        }
+        for (size_t i = 1; i < n && distinct; i++) {
+            distinct = ((*src)[i] >> 32) != ((*src)[i - 1] >> 32);
+        }
+        if (distinct) {
+            for (size_t i = 0; i < n; i++) sorted[i] = cloud.points[static_cast<uint32_t>((*src)[i])];
+        }
+    }
+    if (!distinct) {
+        std::vector<ZKey>& keys = z_sort_keys_;
+        keys.resize(n);
+        for (size_t i = 0; i < n; i++) keys[i] = {cloud.points[i].z, static_cast<uint32_t>(i)};
+
+        std::sort(keys.begin(), keys.end(), [](const ZKey& a, const ZKey& b) { return a.z < b.z; });
+
+        for (size_t i = 0; i < n; i++) sorted[i] = cloud.points[keys[i].idx];
+    }
+    cloud.points.swap(sorted);
 }
 
 template<typename PointT> inline
@@ -564,7 +635,7 @@ void PatchWorkpp<PointT>::estimate_ground(
                 // --------- region-wise sorting (faster than global sorting method) ---------------- //
                 double t_sort_0 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
 
-                sort(zone[ring_idx][sector_idx].points.begin(), zone[ring_idx][sector_idx].points.end(), point_z_cmp<PointT>);
+                sort_by_z(zone[ring_idx][sector_idx]);
 
                 double t_sort_1 = rclcpp::Clock{RCL_STEADY_TIME}.now().seconds();
                 t_sort += (t_sort_1 - t_sort_0);
