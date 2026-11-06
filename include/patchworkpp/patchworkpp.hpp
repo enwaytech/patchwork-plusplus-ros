@@ -45,6 +45,121 @@ using namespace std;
 template <typename PointT>
 bool point_z_cmp(PointT a, PointT b) { return a.z < b.z; }
 
+/*
+    Replica of std::sort of libstdc++ (introsort with median-of-three pivots, threshold 16, heap sort
+    fallback, final insertion sort) that yields the same permutation, also for equal keys. Only the
+    Hoare partition is implemented differently: its k-th swap exchanges the k-th element from the left
+    with !(a < pivot) and the k-th element from the right with !(pivot < a) as long as the former is
+    left of the latter, so both lists are collected first with branch-free scans.
+*/
+namespace std_sort_replica
+{
+constexpr std::ptrdiff_t threshold = 16;
+
+template <typename It, typename Less>
+void unguarded_linear_insert(It last, Less less)
+{
+    auto val = std::move(*last);
+    It next = last;
+    --next;
+    while (less(val, *next)) {
+        *last = std::move(*next);
+        last = next;
+        --next;
+    }
+    *last = std::move(val);
+}
+
+template <typename It, typename Less>
+void insertion_sort(It first, It last, Less less)
+{
+    if (first == last) return;
+    for (It i = first + 1; i != last; ++i) {
+        if (less(*i, *first)) {
+            auto val = std::move(*i);
+            std::move_backward(first, i, i + 1);
+            *first = std::move(val);
+        } else {
+            unguarded_linear_insert(i, less);
+        }
+    }
+}
+
+template <typename It, typename Less>
+void move_median_to_first(It result, It a, It b, It c, Less less)
+{
+    if (less(*a, *b)) {
+        if (less(*b, *c)) std::iter_swap(result, b);
+        else if (less(*a, *c)) std::iter_swap(result, c);
+        else std::iter_swap(result, a);
+    }
+    else if (less(*a, *c)) std::iter_swap(result, a);
+    else if (less(*b, *c)) std::iter_swap(result, c);
+    else std::iter_swap(result, b);
+}
+
+// Same result as std::__unguarded_partition(first, last, pivot) with pivot == first - 1
+template <typename It, typename Less>
+It unguarded_partition(It first, It last, It pivot, Less less, std::vector<int32_t>& lbuf, std::vector<int32_t>& rbuf)
+{
+    const auto p = *pivot;
+    const std::ptrdiff_t n = last - first;
+    lbuf.resize(n + 1);
+    rbuf.resize(n + 1);
+    std::ptrdiff_t nl = 0;
+    for (std::ptrdiff_t i = 0; i < n; ++i) {
+        lbuf[nl] = static_cast<int32_t>(i);
+        nl += !less(first[i], p);
+    }
+    std::ptrdiff_t nr = 0;
+    for (std::ptrdiff_t i = n - 1; i >= 0; --i) {
+        rbuf[nr] = static_cast<int32_t>(i);
+        nr += !less(p, first[i]);
+    }
+    rbuf[nr] = -1;  // the pivot stops the right scan
+    std::ptrdiff_t k = 0;
+    while (k < nl && lbuf[k] < rbuf[k]) {
+        std::iter_swap(first + lbuf[k], first + rbuf[k]);
+        ++k;
+    }
+    if (k == 0) return first + lbuf[0];
+    std::ptrdiff_t cut = rbuf[k - 1];
+    if (k < nl && lbuf[k] < cut) cut = lbuf[k];
+    return first + cut;
+}
+
+template <typename It, typename Less>
+void introsort_loop(It first, It last, long depth_limit, Less less, std::vector<int32_t>& lbuf, std::vector<int32_t>& rbuf)
+{
+    while (last - first > threshold) {
+        if (depth_limit == 0) {
+            std::partial_sort(first, last, last, less);
+            return;
+        }
+        --depth_limit;
+        It mid = first + (last - first) / 2;
+        move_median_to_first(first, first + 1, mid, last - 1, less);
+        It cut = unguarded_partition(first + 1, last, first, less, lbuf, rbuf);
+        introsort_loop(cut, last, depth_limit, less, lbuf, rbuf);
+        last = cut;
+    }
+}
+
+template <typename It, typename Less>
+void sort(It first, It last, Less less, std::vector<int32_t>& lbuf, std::vector<int32_t>& rbuf)
+{
+    if (first == last) return;
+    const long n = last - first;
+    introsort_loop(first, last, (static_cast<long>(sizeof(long)) * 8 - 1 - __builtin_clzl(n)) * 2, less, lbuf, rbuf);
+    if (last - first > threshold) {
+        insertion_sort(first, first + threshold, less);
+        for (It i = first + threshold; i != last; ++i) unguarded_linear_insert(i, less);
+    } else {
+        insertion_sort(first, last, less);
+    }
+}
+}  // namespace std_sort_replica
+
 template <typename PointT>
 struct RevertCandidate
 {
@@ -310,6 +425,7 @@ private:
     struct ZKey { float z; uint32_t idx; };
     std::vector<ZKey> z_sort_keys_;
     std::vector<uint64_t> z_radix_keys_[2];
+    std::vector<int32_t> z_sort_left_stops_, z_sort_right_stops_;
     pcl::PointCloud<PointT> z_sort_buf_;
 
     rclcpp::node_interfaces::NodeParametersInterface::SharedPtr npi_;
@@ -394,9 +510,10 @@ void PatchWorkpp<PointT>::flush_patches(vector<Zone> &czm) {
 
 /*
     Same result as std::sort(cloud.points, point_z_cmp). If all z values are distinct (and not NaN),
-    the sorted order is unique and a radix sort on the z bits yields it. Otherwise std::sort runs on
-    (z, index) keys with the same comparison, so it performs the same steps and yields the same
-    permutation, including the order of equal z values. The points are then gathered in that order.
+    the sorted order is unique and a radix sort on the z bits yields it. Otherwise std::sort (its
+    replica) runs on (z, index) keys with the same comparison, so it performs the same steps and yields
+    the same permutation, including the order of equal z values. The points are then gathered in that
+    order.
 */
 template<typename PointT> inline
 void PatchWorkpp<PointT>::sort_by_z(pcl::PointCloud<PointT> &cloud) {
@@ -449,7 +566,8 @@ void PatchWorkpp<PointT>::sort_by_z(pcl::PointCloud<PointT> &cloud) {
         keys.resize(n);
         for (size_t i = 0; i < n; i++) keys[i] = {cloud.points[i].z, static_cast<uint32_t>(i)};
 
-        std::sort(keys.begin(), keys.end(), [](const ZKey& a, const ZKey& b) { return a.z < b.z; });
+        std_sort_replica::sort(keys.begin(), keys.end(), [](const ZKey& a, const ZKey& b) { return a.z < b.z; },
+                               z_sort_left_stops_, z_sort_right_stops_);
 
         for (size_t i = 0; i < n; i++) sorted[i] = cloud.points[keys[i].idx];
     }
