@@ -348,6 +348,8 @@ private:
     void postUpdateParameters(const std::vector<rclcpp::Parameter> &params);
     /* ROS Callbacks Functions */
     sensor_msgs::msg::PointCloud2::UniquePtr cloud2msg(const pcl::PointCloud<PointT>& cloud, const rclcpp::Time& stamp, std::string frame_id = "map");
+    void from_ros_msg(const sensor_msgs::msg::PointCloud2& msg, pcl::PointCloud<PointT>& cloud);
+    void to_ros_msg(const pcl::PointCloud<PointT>& cloud, sensor_msgs::msg::PointCloud2& msg);
     void publish_cloud(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pub,
                        const pcl::PointCloud<PointT>& cloud,
                        const builtin_interfaces::msg::Time& stamp,
@@ -1052,7 +1054,7 @@ void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::Con
     pcl::PointCloud<PointT>& pc_ground = pc_ground_;
     pcl::PointCloud<PointT>& pc_non_ground = pc_non_ground_;
 
-    pcl::fromROSMsg(*cloud_msg, pc_curr);
+    from_ros_msg(*cloud_msg, pc_curr);
     std::string output_frame = cloud_msg->header.frame_id;
 
     // Optionally transform cloud to target_frame_
@@ -1102,10 +1104,85 @@ template<typename PointT> inline
 sensor_msgs::msg::PointCloud2::UniquePtr PatchWorkpp<PointT>::cloud2msg(const pcl::PointCloud<PointT>& cloud, const rclcpp::Time& stamp, std::string frame_id)
 {
     sensor_msgs::msg::PointCloud2::UniquePtr cloud_ROS = std::make_unique<sensor_msgs::msg::PointCloud2>();
-    pcl::toROSMsg(cloud, *cloud_ROS);
+    to_ros_msg(cloud, *cloud_ROS);
     cloud_ROS->header.stamp = stamp;
     cloud_ROS->header.frame_id = frame_id;
     return std::move(cloud_ROS);
+}
+
+/*
+    pcl::fromROSMsg() that copies a single 20 byte block of fields per point (x, y, z and intensity of
+    pcl::PointXYZI with the same layout) with a fixed-size copy instead of a memmove call per point.
+*/
+template<typename PointT> inline
+void PatchWorkpp<PointT>::from_ros_msg(const sensor_msgs::msg::PointCloud2& msg, pcl::PointCloud<PointT>& cloud)
+{
+#if PCL_VERSION_COMPARE(>=, 1, 13, 1)
+    pcl::PCLPointCloud2 pcl_pc2;
+    pcl_conversions::copyPointCloud2MetaData(msg, pcl_pc2);
+    pcl::MsgFieldMap field_map;
+    pcl::createMapping<PointT>(pcl_pc2.fields, field_map);
+
+    constexpr std::size_t block_size = 20;
+    if (field_map.size() != 1 || field_map[0].serialized_offset != 0 || field_map[0].struct_offset != 0 ||
+        field_map[0].size != block_size || sizeof(PointT) < block_size || pcl_pc2.width * pcl_pc2.height == 0)
+    {
+        pcl::fromPCLPointCloud2(pcl_pc2, cloud, field_map, &msg.data[0]);
+        return;
+    }
+
+    // Same steps as pcl::fromPCLPointCloud2() for this field map
+    cloud.header = pcl_pc2.header;
+    cloud.width = pcl_pc2.width;
+    cloud.height = pcl_pc2.height;
+    cloud.is_dense = pcl_pc2.is_dense == 1;
+    cloud.resize(pcl_pc2.width * pcl_pc2.height);
+
+    std::uint8_t* cloud_data = reinterpret_cast<std::uint8_t*>(cloud.data());
+    for (std::size_t row = 0; row < pcl_pc2.height; ++row)
+    {
+        const std::uint8_t* row_data = &msg.data[0] + row * pcl_pc2.row_step;
+        for (std::size_t col = 0; col < pcl_pc2.width; ++col)
+        {
+            std::memcpy(cloud_data, row_data + col * pcl_pc2.point_step, block_size);
+            cloud_data += sizeof(PointT);
+        }
+    }
+#else
+    pcl::fromROSMsg(msg, cloud);
+#endif
+}
+
+/*
+    pcl::toROSMsg() that does not zero-fill the data buffer before copying the points into it.
+*/
+template<typename PointT> inline
+void PatchWorkpp<PointT>::to_ros_msg(const pcl::PointCloud<PointT>& cloud, sensor_msgs::msg::PointCloud2& msg)
+{
+#if PCL_VERSION_COMPARE(<, 1, 14, 1)
+    // Same steps as pcl::toPCLPointCloud2() (points copied with padding)
+    pcl::PCLPointCloud2 pcl_pc2;
+    if (cloud.width == 0 && cloud.height == 0)
+    {
+        pcl_pc2.width = cloud.size();
+        pcl_pc2.height = 1;
+    }
+    else
+    {
+        pcl_pc2.height = cloud.height;
+        pcl_pc2.width = cloud.width;
+    }
+    const std::uint8_t* data = reinterpret_cast<const std::uint8_t*>(cloud.data());
+    pcl_pc2.data.assign(data, data + sizeof(PointT) * cloud.size());
+    pcl::for_each_type<typename pcl::traits::fieldList<PointT>::type>(pcl::detail::FieldAdder<PointT>(pcl_pc2.fields));
+    pcl_pc2.header = cloud.header;
+    pcl_pc2.point_step = sizeof(PointT);
+    pcl_pc2.row_step = (sizeof(PointT) * pcl_pc2.width);
+    pcl_pc2.is_dense = cloud.is_dense;
+    pcl_conversions::moveFromPCL(pcl_pc2, msg);
+#else
+    pcl::toROSMsg(cloud, msg);
+#endif
 }
 
 template<typename PointT> inline
@@ -1116,7 +1193,7 @@ void PatchWorkpp<PointT>::publish_cloud(const rclcpp::Publisher<sensor_msgs::msg
 {
     // Published as unique_ptr so that intra-process publishing does not copy the message
     auto cloud_ROS = std::make_unique<sensor_msgs::msg::PointCloud2>();
-    pcl::toROSMsg(cloud, *cloud_ROS);
+    to_ros_msg(cloud, *cloud_ROS);
     cloud_ROS->header.stamp = stamp;
     cloud_ROS->header.frame_id = frame_id;
     pub->publish(std::move(cloud_ROS));
