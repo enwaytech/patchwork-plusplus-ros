@@ -455,7 +455,7 @@ template<typename PointT> inline
 void PatchWorkpp<PointT>::estimate_plane(const pcl::PointCloud<PointT> &ground) {
     pcl::computeMeanAndCovarianceMatrix(ground, cov_, pc_mean_);
     // Singular Value Decomposition: SVD
-    Eigen::JacobiSVD<Eigen::MatrixXf> svd(cov_, Eigen::DecompositionOptions::ComputeFullU);
+    Eigen::JacobiSVD<Eigen::Matrix3f> svd(cov_, Eigen::DecompositionOptions::ComputeFullU);
     singular_values_ = svd.singularValues();
 
     // use the least singular vector as normal
