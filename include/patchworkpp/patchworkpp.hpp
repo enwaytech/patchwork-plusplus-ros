@@ -198,6 +198,16 @@ public:
                         2 * M_PI / num_sectors_each_zone_.at(2),
                         2 * M_PI / num_sectors_each_zone_.at(3)};
 
+        // Direction (cos, sin) of every sector boundary, used by xy2sector()
+        sector_bounds_.clear();
+        for (int i = 0; i < num_zones_; i++) {
+            std::vector<std::pair<double, double>> bounds;
+            for (long k = 0; k <= num_sectors_each_zone_[i]; k++) {
+                bounds.emplace_back(std::cos(k * sector_sizes_[i]), std::sin(k * sector_sizes_[i]));
+            }
+            sector_bounds_.push_back(bounds);
+        }
+
         cout << "INITIALIZATION COMPLETE" << endl;
         ConcentricZoneModel_.clear();
         for (int i = 0; i < num_zones_; i++) {
@@ -255,6 +265,7 @@ private:
     vector<long> num_sectors_each_zone_;
     vector<long> num_rings_each_zone_;
     vector<double> sector_sizes_;
+    vector<vector<std::pair<double, double>>> sector_bounds_;
     vector<double> ring_sizes_;
     vector<double> min_ranges_;
     vector<double> elevation_thr_;
@@ -310,6 +321,7 @@ private:
     void update_flatness_thr();
     double xy2theta(const double &x, const double &y);
     double xy2radius(const double &x, const double &y);
+    int xy2sector(const double &x, const double &y, const int zone_idx);
     void estimate_plane(const pcl::PointCloud<PointT> &ground);
     void extract_piecewiseground(
             const int zone_idx, const pcl::PointCloud<PointT> &src,
@@ -922,6 +934,41 @@ double PatchWorkpp<PointT>::xy2radius(const double &x, const double &y) {
     return sqrt(pow(x, 2) + pow(y, 2));
 }
 
+/*
+    Sector index of (x, y) in a zone, equal to min(xy2theta(x, y) / sector_size, num_sectors - 1).
+    A cheap atan approximation picks a candidate sector, which is taken only if the point lies inside
+    its wedge (between two boundaries < pi apart) by a margin far above the rounding errors of
+    atan2 and of the cross products. Points near a boundary use the atan2 computation.
+*/
+template<typename PointT> inline
+int PatchWorkpp<PointT>::xy2sector(const double &x, const double &y, const int zone_idx) {
+    const long num_sectors = num_sectors_each_zone_[zone_idx];
+    const double ax = std::abs(x);
+    const double ay = std::abs(y);
+    const double max_xy = std::max(ax, ay);
+    if (num_sectors >= 3 && max_xy > 0.0 && std::isfinite(max_xy)) {
+        // atan(a) for a in [0, 1], absolute error about 1e-5 rad
+        const double a = std::min(ax, ay) / max_xy;
+        const double s = a * a;
+        double angle = ((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a;
+        if (ay > ax) angle = M_PI_2 - angle;
+        if (x < 0) angle = M_PI - angle;
+        if (y < 0) angle = -angle;
+        const double theta = angle > 0 ? angle : 2 * M_PI + angle;
+        const long k = std::min(static_cast<long>(theta / sector_sizes_[zone_idx]), num_sectors - 1);
+
+        // Cross products with the boundary directions: > 0 if the point is counter-clockwise of it
+        const auto& lower = sector_bounds_[zone_idx][k];
+        const auto& upper = sector_bounds_[zone_idx][k + 1];
+        const double margin = 1e-9 * (ax + ay);
+        if (lower.first * y - lower.second * x > margin && upper.first * y - upper.second * x < -margin) {
+            return k;
+        }
+    }
+    double theta = xy2theta(x, y);
+    return min(static_cast<long>((theta / sector_sizes_[zone_idx])), num_sectors - 1);
+}
+
 template<typename PointT> inline
 void PatchWorkpp<PointT>::callbackCloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud_msg)
 {
@@ -1014,8 +1061,6 @@ void PatchWorkpp<PointT>::pc2czm(const pcl::PointCloud<PointT> &src, std::vector
 
         double r = xy2radius(pt.x, pt.y);
         if ((r <= max_range_) && (r > min_range_)) {
-            double theta = xy2theta(pt.x, pt.y);
-
             int zone_idx = 0;
             if ( r < min_ranges_[1] ) zone_idx = 0;
             else if ( r < min_ranges_[2] ) zone_idx = 1;
@@ -1023,7 +1068,7 @@ void PatchWorkpp<PointT>::pc2czm(const pcl::PointCloud<PointT> &src, std::vector
             else zone_idx = 3;
 
             int ring_idx = min(static_cast<long>(((r - min_ranges_[zone_idx]) / ring_sizes_[zone_idx])), num_rings_each_zone_[zone_idx] - 1);
-            int sector_idx = min(static_cast<long>((theta / sector_sizes_[zone_idx])), num_sectors_each_zone_[zone_idx] - 1);
+            int sector_idx = xy2sector(pt.x, pt.y, zone_idx);
 
             czm[zone_idx][ring_idx][sector_idx].points.emplace_back(pt);
         }
